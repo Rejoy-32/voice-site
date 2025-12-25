@@ -2,140 +2,140 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Voice Site (Robust)</title>
+    <title>Voice Interface</title>
     <style>
         body {
             background-color: #000;
             color: #fff;
-            font-family: monospace;
+            font-family: Arial, sans-serif;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
             text-align: center;
+            padding: 20px;
         }
-        #status { font-size: 2rem; margin-bottom: 20px; }
-        #log { color: #888; }
-        .error { color: red; }
+        #status { font-size: 2rem; margin-bottom: 20px; font-weight: bold; }
+        #instruction { font-size: 1.2rem; color: #aaa; }
+        .error { color: #ff4444 !important; }
+        .active { color: #00ff00 !important; }
     </style>
 </head>
 <body>
 
-    <div id="status">Starting...</div>
-    <div id="log"></div>
+    <div id="status">System Initializing...</div>
+    <div id="instruction">Please wait...</div>
 
     <script>
-        // --- 1. SETUP ---
+        // --- CONFIGURATION ---
         const synth = window.speechSynthesis;
-        // Check for browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-        if (!SpeechRecognition) {
-            document.getElementById('status').innerText = "BROWSER ERROR";
-            document.getElementById('log').innerText = "Please use Google Chrome.";
-            throw new Error("Speech Recognition not supported");
-        }
+        let recognition;
+        let isSystemSpeaking = false;
 
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false; // Easier for network stability
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        // Variables to manage state
-        let isSpeaking = false;
-
-        // --- 2. LOGGING HELPER ---
-        function updateStatus(text, isError = false) {
-            const el = document.getElementById('status');
-            el.innerText = text;
-            el.style.color = isError ? 'red' : 'white';
-        }
-
-        // --- 3. SPEECH SYNTHESIS (Talking) ---
+        // --- 1. SAFE SPEAKING FUNCTION ---
+        // This handles the "Talking" part.
         function speak(text) {
-            if (synth.speaking) return; // Don't interrupt if already talking
+            if (synth.speaking) return;
+
+            isSystemSpeaking = true;
             
-            isSpeaking = true;
-            recognition.stop(); // Ensure mic is off
+            // If we have a recognizer, pause it so we don't hear ourselves
+            if (recognition) recognition.stop();
+
+            const utterance = new SpeechSynthesisUtterance(text);
             
-            const utterThis = new SpeechSynthesisUtterance(text);
-            
-            utterThis.onend = function (event) {
-                isSpeaking = false;
-                startListening(); // Re-open mic after talking
+            utterance.onend = () => {
+                isSystemSpeaking = false;
+                // Only restart listening if the browser actually supports it
+                if (recognition) { 
+                    try { recognition.start(); } catch(e){} 
+                }
             };
 
-            utterThis.onerror = function (event) {
-                console.error("SpeechSynthesisUtterance.onerror");
-                isSpeaking = false;
+            synth.speak(utterance);
+        }
+
+        // --- 2. BROWSER CHECK & SETUP ---
+        function initSystem() {
+            if (!SpeechRecognition) {
+                handleError("unsupported");
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+
+            // --- COMMAND HANDLING ---
+            recognition.onresult = (event) => {
+                const command = event.results[0][0].transcript.toLowerCase();
+                document.getElementById('instruction').innerText = `Heard: "${command}"`;
+
+                if (command.includes('hello')) {
+                    speak("Hello. I am functioning perfectly.");
+                } else if (command.includes('time')) {
+                    speak("The time is " + new Date().toLocaleTimeString());
+                } else if (command.includes('stop')) {
+                    speak("Goodbye.");
+                } else {
+                    speak("I heard " + command + ". Say time or hello.");
+                }
             };
 
-            synth.speak(utterThis);
+            // --- ERROR HANDLING (BRAVE FIX) ---
+            recognition.onerror = (event) => {
+                console.log("Error:", event.error);
+
+                // "Network" error usually means Brave is blocking Google Servers
+                if (event.error === 'network') {
+                    handleError("brave-block");
+                } 
+                else if (event.error === 'not-allowed') {
+                    handleError("mic-blocked");
+                }
+            };
+
+            // Keep the mic alive if it turns off
+            recognition.onend = () => {
+                if (!isSystemSpeaking) {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+
+            // Start everything
+            speak("System online. Waiting for command.");
         }
 
-        // --- 4. SPEECH RECOGNITION (Listening) ---
-        function startListening() {
-            if (isSpeaking) return; // Don't listen if computer is talking
+        // --- 3. ERROR MANAGER ---
+        function handleError(type) {
+            const statusEl = document.getElementById('status');
+            const instructEl = document.getElementById('instruction');
             
-            try {
-                recognition.start();
-                updateStatus("Listening...");
-            } catch (e) {
-                // Usually means it's already started, safe to ignore
-                console.log("Mic already active");
+            if (type === "brave-block") {
+                statusEl.innerText = "BROWSER ERROR";
+                statusEl.className = "error";
+                instructEl.innerText = "This browser (Brave/Firefox) blocks voice features.";
+                // CRITICAL: Verbally tell the user what is wrong
+                speak("Error. This browser is blocking my connection. Please open this site in Google Chrome.");
+            }
+            else if (type === "mic-blocked") {
+                statusEl.innerText = "MIC BLOCKED";
+                statusEl.className = "error";
+                speak("I cannot hear you. Please allow microphone access in your settings.");
+            }
+            else if (type === "unsupported") {
+                statusEl.innerText = "NOT SUPPORTED";
+                speak("Your browser does not support voice control. Please use Google Chrome.");
             }
         }
 
-        recognition.onresult = function(event) {
-            const command = event.results[0][0].transcript.toLowerCase();
-            updateStatus('Heard: ' + command);
-            
-            // LOGIC
-            if (command.includes('hello')) {
-                speak("Hello! I am online and listening.");
-            } else if (command.includes('time')) {
-                speak("The time is " + new Date().toLocaleTimeString());
-            } else if (command.includes('stop')) {
-                speak("Goodbye.");
-                // We don't call startListening here to end the loop
-            } else {
-                speak("I heard " + command + ". Please say hello or time.");
-            }
-        };
-
-        // --- 5. ERROR HANDLING (The Fix) ---
-        recognition.onerror = function(event) {
-            console.log('Error occurred in recognition: ' + event.error);
-            
-            if (event.error === 'network') {
-                updateStatus("Network Error. Retrying...", true);
-                // Wait 2 seconds and try again
-                setTimeout(startListening, 2000);
-            } 
-            else if (event.error === 'not-allowed') {
-                updateStatus("Mic Blocked. Allow in Settings.", true);
-            }
-            else if (event.error === 'no-speech') {
-                // User didn't say anything. Just restart listening silently.
-                startListening();
-            }
-        };
-
-        recognition.onend = function() {
-            // If the mic turns off unexpectedly and we aren't speaking, turn it back on
-            if (!isSpeaking) {
-                startListening();
-            }
-        };
-
-        // --- 6. STARTUP ---
-        // Try to start immediately (Requires 'Sound: Allow' in Site Settings)
+        // --- 4. AUTO-START ---
         window.onload = function() {
-            setTimeout(() => {
-                speak("System ready.");
-            }, 1000);
+            setTimeout(initSystem, 1000);
         };
 
     </script>
