@@ -2,103 +2,139 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Auto-Start Voice Interface</title>
+    <title>Voice Site (Robust)</title>
     <style>
         body {
             background-color: #000;
             color: #fff;
             font-family: monospace;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            margin: 0;
             text-align: center;
         }
-        #log { font-size: 1.5rem; color: #0f0; }
-        .error { color: #f00 !important; }
+        #status { font-size: 2rem; margin-bottom: 20px; }
+        #log { color: #888; }
+        .error { color: red; }
     </style>
 </head>
 <body>
-    <div id="log">Attempting to auto-start...</div>
+
+    <div id="status">Starting...</div>
+    <div id="log"></div>
 
     <script>
-        // --- SETUP ---
+        // --- 1. SETUP ---
         const synth = window.speechSynthesis;
+        // Check for browser support
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        
-        // Check if browser supports it
+
         if (!SpeechRecognition) {
-            document.getElementById('log').innerText = "Browser not supported. Use Chrome.";
+            document.getElementById('status').innerText = "BROWSER ERROR";
+            document.getElementById('log').innerText = "Please use Google Chrome.";
+            throw new Error("Speech Recognition not supported");
         }
 
         const recognition = new SpeechRecognition();
-        recognition.continuous = false; 
+        recognition.continuous = false; // Easier for network stability
         recognition.lang = 'en-US';
         recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
 
-        // --- FUNCTIONS ---
+        // Variables to manage state
+        let isSpeaking = false;
 
-        function log(text, isError = false) {
-            const el = document.getElementById('log');
+        // --- 2. LOGGING HELPER ---
+        function updateStatus(text, isError = false) {
+            const el = document.getElementById('status');
             el.innerText = text;
-            if (isError) el.className = "error";
-            else el.className = "";
+            el.style.color = isError ? 'red' : 'white';
         }
 
+        // --- 3. SPEECH SYNTHESIS (Talking) ---
         function speak(text) {
-            recognition.stop(); // Stop listening while speaking
-            const utterance = new SpeechSynthesisUtterance(text);
+            if (synth.speaking) return; // Don't interrupt if already talking
             
-            utterance.onend = () => {
-                try {
-                    recognition.start(); // Start listening again after speaking
-                    log("Listening...");
-                } catch (e) {
-                    console.error(e);
-                }
+            isSpeaking = true;
+            recognition.stop(); // Ensure mic is off
+            
+            const utterThis = new SpeechSynthesisUtterance(text);
+            
+            utterThis.onend = function (event) {
+                isSpeaking = false;
+                startListening(); // Re-open mic after talking
             };
 
-            // ERROR HANDLER: If browser blocks audio
-            utterance.onerror = (e) => {
-                log("Audio Blocked: Browser requires interaction.", true);
+            utterThis.onerror = function (event) {
+                console.error("SpeechSynthesisUtterance.onerror");
+                isSpeaking = false;
             };
 
-            synth.speak(utterance);
+            synth.speak(utterThis);
         }
 
-        recognition.onresult = (event) => {
+        // --- 4. SPEECH RECOGNITION (Listening) ---
+        function startListening() {
+            if (isSpeaking) return; // Don't listen if computer is talking
+            
+            try {
+                recognition.start();
+                updateStatus("Listening...");
+            } catch (e) {
+                // Usually means it's already started, safe to ignore
+                console.log("Mic already active");
+            }
+        }
+
+        recognition.onresult = function(event) {
             const command = event.results[0][0].transcript.toLowerCase();
-            log(`Heard: "${command}"`);
-
-            if (command.includes('time')) {
-                const time = new Date().toLocaleTimeString();
-                speak("The time is " + time);
-            } else if (command.includes('hello')) {
-                speak("Hello there. System is working.");
+            updateStatus('Heard: ' + command);
+            
+            // LOGIC
+            if (command.includes('hello')) {
+                speak("Hello! I am online and listening.");
+            } else if (command.includes('time')) {
+                speak("The time is " + new Date().toLocaleTimeString());
+            } else if (command.includes('stop')) {
+                speak("Goodbye.");
+                // We don't call startListening here to end the loop
             } else {
-                speak("I heard " + command + ". Say time or hello.");
+                speak("I heard " + command + ". Please say hello or time.");
             }
         };
 
-        recognition.onerror = (event) => {
-            if (event.error === 'not-allowed') {
-                log("MIC BLOCKED. Check Browser Permissions.", true);
-            } else {
-                log("Error: " + event.error, true);
+        // --- 5. ERROR HANDLING (The Fix) ---
+        recognition.onerror = function(event) {
+            console.log('Error occurred in recognition: ' + event.error);
+            
+            if (event.error === 'network') {
+                updateStatus("Network Error. Retrying...", true);
+                // Wait 2 seconds and try again
+                setTimeout(startListening, 2000);
+            } 
+            else if (event.error === 'not-allowed') {
+                updateStatus("Mic Blocked. Allow in Settings.", true);
+            }
+            else if (event.error === 'no-speech') {
+                // User didn't say anything. Just restart listening silently.
+                startListening();
             }
         };
 
-        // --- AUTO START LOGIC ---
+        recognition.onend = function() {
+            // If the mic turns off unexpectedly and we aren't speaking, turn it back on
+            if (!isSpeaking) {
+                startListening();
+            }
+        };
+
+        // --- 6. STARTUP ---
+        // Try to start immediately (Requires 'Sound: Allow' in Site Settings)
         window.onload = function() {
-            // We create a short delay to ensure the browser is ready
             setTimeout(() => {
-                try {
-                    log("Initializing...");
-                    speak("System online. Waiting for command.");
-                } catch (e) {
-                    log("Auto-start failed. Browser blocked it.", true);
-                }
+                speak("System ready.");
             }, 1000);
         };
 
