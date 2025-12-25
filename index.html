@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Auto-Start Voice Interface</title>
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            font-family: monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        #log { font-size: 1.5rem; color: #0f0; }
+        .error { color: #f00 !important; }
+    </style>
+</head>
+<body>
+    <div id="log">Attempting to auto-start...</div>
+
+    <script>
+        // --- SETUP ---
+        const synth = window.speechSynthesis;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        
+        // Check if browser supports it
+        if (!SpeechRecognition) {
+            document.getElementById('log').innerText = "Browser not supported. Use Chrome.";
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false; 
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+
+        // --- FUNCTIONS ---
+
+        function log(text, isError = false) {
+            const el = document.getElementById('log');
+            el.innerText = text;
+            if (isError) el.className = "error";
+            else el.className = "";
+        }
+
+        function speak(text) {
+            recognition.stop(); // Stop listening while speaking
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            utterance.onend = () => {
+                try {
+                    recognition.start(); // Start listening again after speaking
+                    log("Listening...");
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+
+            // ERROR HANDLER: If browser blocks audio
+            utterance.onerror = (e) => {
+                log("Audio Blocked: Browser requires interaction.", true);
+            };
+
+            synth.speak(utterance);
+        }
+
+        recognition.onresult = (event) => {
+            const command = event.results[0][0].transcript.toLowerCase();
+            log(`Heard: "${command}"`);
+
+            if (command.includes('time')) {
+                const time = new Date().toLocaleTimeString();
+                speak("The time is " + time);
+            } else if (command.includes('hello')) {
+                speak("Hello there. System is working.");
+            } else {
+                speak("I heard " + command + ". Say time or hello.");
+            }
+        };
+
+        recognition.onerror = (event) => {
+            if (event.error === 'not-allowed') {
+                log("MIC BLOCKED. Check Browser Permissions.", true);
+            } else {
+                log("Error: " + event.error, true);
+            }
+        };
+
+        // --- AUTO START LOGIC ---
+        window.onload = function() {
+            // We create a short delay to ensure the browser is ready
+            setTimeout(() => {
+                try {
+                    log("Initializing...");
+                    speak("System online. Waiting for command.");
+                } catch (e) {
+                    log("Auto-start failed. Browser blocked it.", true);
+                }
+            }, 1000);
+        };
+
+    </script>
+</body>
+</html>
